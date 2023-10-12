@@ -1,3 +1,49 @@
+
+# Code Snippet 27
+
+# utils/aws_utils.py
+
+def select_keys_to_show(service, region, report_type,output):
+    # print("service: " + service)
+    # print("region: " + region)
+    # print("report_type: " + report_type)
+    # print("output: " + output)
+    if service == 'ec2':
+        if output == 's':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Launch Time']
+        elif output == 's2':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'Instance Name', 'VPC ID', 'VPC Name', 'Subnet ID', 'Public IP', 'Launch Time']
+        elif output == 's3':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Private IP', 'Launch Time']
+    elif service == 'vpc':
+        if report_type == 'sub' and output=='s':
+            keys_to_show = ['Subnet ID', 'Subnet CIDR', 'Route Associations', 'Is Main']
+        elif report_type == 'vpce' and output=='s':
+            keys_to_show = ['VPC Endpoint ID', 'Service Name', 'VPC Endpoint Type', 'State', 'Route Tables']
+        elif report_type == 'rds' and output=='s':
+            keys_to_show = ['DBInstanceIdentifier','DBInstanceClass','Engine','DBInstanceStatus', 'MasterUsername', 'Endpoint','AllocatedStorage']
+        elif report_type == 'ec2' and output=='s':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Launch Time']
+        elif report_type == 'ec2' and output=='s2':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'Instance Name', 'VPC ID', 'VPC Name', 'Subnet ID', 'Public IP', 'Launch Time']
+        elif report_type == 'ec2' and output=='s3':
+            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Private IP', 'Launch Time']
+        elif report_type == 'vpn' and output=='s':
+            keys_to_show = ['VPN Connection ID','VPC ID','Customer Gateway ID','VPN Gateway ID','State','Type','Creation Time','Option','Routes']
+        elif report_type == 'cvpn' and output=='s':
+            keys_to_show = ['Endpoint ID','Description','Status','Creation Time','VPN CIDR','VPC ID','DNS Name','Server Certificate ARN','Transport Protocol']
+        elif report_type == 'sg' and output=='s':
+            keys_to_show = ['SG ID','SG Name','Inbound Rules','Outbound Rules']
+        elif report_type == 'sg' and output=='s2':
+            keys_to_show = ['SG ID','SG Name','Description','VPC ID','Inbound Rules','Outbound Rules']
+        elif report_type == 'peer' and output=='s':
+            keys_to_show = ['Peering ID','Req VPC ID','Req VPC CIDR','Req Owner ID','Acc VPC ID','Acc VPC CIDR','Acc Owner ID','Status','Creation Time']
+        else:
+            keys_to_show = ['VPC ID', 'VPC Name', 'VPC CIDR', 'Subnets', 'Subnet CIDR', 'IsPublic', 'EC2 instance ID', 'Instance Name', 'Instance Public IP', 'Instance Private IP']
+    return keys_to_show
+
+
+
 # Code Snippet 11
 
 # utils/aws_utils.py
@@ -10,13 +56,28 @@ def get_ec2_instances(region=None, stopped=False, vpcid=None):
     else:
         session = boto3.Session()
 
+    # print("Region: %s" % region)
+    # print("VpcId: %s" % vpcid)
+    # print("Stopped: %s" %stopped)
     ec2_resource = session.resource('ec2')
     ec2_client = session.client('ec2')
     
-    instances = ec2_resource.instances.all()
+    filters = []
+    if vpcid is not None:
+        filters.append({
+            'Name': 'vpc-id',
+            'Values': [vpcid]
+        })
+    if stopped:
+        filters.append({
+            'Name': 'instance-state-name',
+            'Values': ['stopped']
+        })
+    
+    instances = ec2_resource.instances.filter(Filters=filters)
 
     instance_data = []
-
+    
     for instance in instances:
         if stopped and instance.state["Name"] != "stopped":
             continue
@@ -49,27 +110,6 @@ def get_ec2_instances(region=None, stopped=False, vpcid=None):
 # Code Snippet 27
 
 # utils/aws_utils.py
-
-def select_keys_to_show(service, region, report_type,output):
-    if service == 'ec2':
-        if output == 's':
-            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Launch Time']
-        elif output == 's2':
-            keys_to_show = ['Instance ID', 'State', 'Instance Type', 'Instance Name', 'VPC ID', 'VPC Name', 'Subnet ID', 'Public IP', 'Launch Time']
-        elif report_type == 's3':
-            output = ['Instance ID', 'State', 'Instance Type', 'VPC ID', 'Subnet ID', 'Public IP', 'Private IP', 'Launch Time']
-    elif service == 'vpc':
-        if report_type == 'sub' and output=='s':
-            keys_to_show = ['Subnet ID', 'Subnet CIDR', 'Route Associations', 'Is Main']
-        elif report_type == 'vpce' and output=='s':
-            keys_to_show = ['VPC Endpoint ID', 'Service Name', 'VPC Endpoint Type', 'State', 'Route Tables']
-        elif report_type == 'rds' and output=='s':
-            keys_to_show = ['DBInstanceIdentifier','DBInstanceClass','Engine','DBInstanceStatus', 'MasterUsername', 'Endpoint','AllocatedStorage']
-        else:
-            keys_to_show = ['VPC ID', 'VPC Name', 'VPC CIDR', 'Subnets', 'Subnet CIDR', 'IsPublic', 'EC2 instance ID', 'Instance Name', 'Instance Public IP', 'Instance Private IP']
-    return keys_to_show
-
-
 
 # Code Snippet 15
 
@@ -191,29 +231,6 @@ def get_vpc_endpoints(vpc_id, region=None):
     
     return vpc_endpoints
 
-
-def get_vpc_resource(vpc_id, region, resource_type):
-    resource_data = {
-        "ec2": get_ec2_instances,
-        "sub": get_subnet_info,
-        "rds": get_rds_instances,
-        "vpce": get_vpc_endpoints
-        # "vpn": get_vpn_connections
-    }
-    
-    if resource_type == "all":
-        all_resources = {}
-        for key, function in resource_data.items():
-            all_resources[key] = function(vpc_id, region)
-        return all_resources
-    
-    else:
-        function = resource_data.get(resource_type)
-        if function:
-            return function(vpc_id, region)
-        else:
-            raise ValueError(f"Invalid resource type: {resource_type}")
-
 def get_rds_instances(vpc_id, region):
     rds = boto3.client('rds', region_name=region)
     response = rds.describe_db_instances()
@@ -235,3 +252,238 @@ def get_rds_instances(vpc_id, region):
         }
         rds_details.append(instance_details)
     return rds_details
+
+def get_vpn_connections(region=None, vpcid=None):
+    # Initialize session and client
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    # Define filters based on VPC ID if provided
+    filters = []
+    if vpcid:
+        filters.append({
+            'Name': 'vpn-connection.vpc-id',
+            'Values': [vpcid]
+        })
+
+    # Fetch VPN connections using filters
+    vpns = ec2_client.describe_vpn_connections(Filters=filters)
+    
+    vpn_data = []
+    # Parse and append VPN details to vpn_data
+    for vpn in vpns['VpnConnections']:
+        vpn_data.append({
+            'Region': region,
+            'VPN Connection ID': vpn.get('VpnConnectionId', ''),
+            'VPC ID': vpn.get('VpcId', ''),
+            'Customer Gateway ID': vpn.get('CustomerGatewayId', ''),
+            'VPN Gateway ID': vpn.get('VpnGatewayId', ''),
+            'State': vpn.get('State', ''),
+            'Type': vpn.get('Type', ''),
+            'Creation Time': vpn.get('CreationTime', ''),
+            'Option': vpn.get('Options', {}).get('StaticRoutesOnly', ''),
+            'Routes': ", ".join([route['DestinationCidrBlock'] for route in vpn.get('Routes', [])])
+        })
+    return vpn_data
+
+
+import boto3
+
+def get_client_vpn_endpoints(region=None, vpcid=None):
+    """
+    Retrieve information about AWS Client VPN endpoints.
+
+    :param region: AWS region name.
+    :param vpcid: VPC ID to filter the VPN endpoints (optional).
+    :return: List of dictionaries containing VPN endpoint details.
+    """
+    # Initialize the session and client
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+
+    # Define filters if VPC ID is provided
+    
+    # Fetch Client VPN endpoints data
+    try:
+        response = ec2_client.describe_client_vpn_endpoints()
+    except Exception as e:
+        print(f"Error fetching VPN endpoints: {str(e)}")
+        return []
+
+    # Extract and structure data
+    vpn_data = []
+    for endpoint in response.get('ClientVpnEndpoints', []):
+        if vpcid and endpoint.get('VpcId') != vpcid:
+            continue
+        
+        vpn_data.append({
+            'Endpoint ID': endpoint.get('ClientVpnEndpointId'),
+            'Description': endpoint.get('Description'),
+            'VPC ID': endpoint.get('VpcId'),
+            'Status': endpoint.get('Status', {}).get('Code'),
+            'Creation Time': endpoint.get('CreationTime'),
+            'VPN CIDR': endpoint.get('ClientCidrBlock'),
+            'DNS Name': endpoint.get('DnsName'),
+            'Server Certificate ARN': endpoint.get('ServerCertificateArn'),
+            'Transport Protocol': endpoint.get('TransportProtocol'),
+        })
+    
+    return vpn_data
+
+
+def get_security_groups(region=None, vpcid=None):
+    """
+    Retrieve information about AWS security groups.
+
+    :param region: AWS region name.
+    :param vpcid: VPC ID to filter the security groups (optional).
+    :return: List of dictionaries containing security group details.
+    """
+    # Initialize the session and client
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    # Define a filter to obtain only security groups related to the provided VPC ID
+    filters = []
+    if vpcid:
+        filters.append({
+            'Name': 'vpc-id',
+            'Values': [vpcid]
+        })
+
+    # Fetch Security Groups data
+    try:
+        response = ec2_client.describe_security_groups(Filters=filters)
+    except Exception as e:
+        print(f"Error fetching security groups: {str(e)}")
+        return []
+
+    # Extract and structure data
+    sg_data = []
+    for sg in response.get('SecurityGroups', []):
+        # Extracting Inbound rules (permissions) as a string for simplicity
+        inbound_rules = []
+        for permission in sg.get('IpPermissions', []):
+            from_port = permission.get('FromPort', '')
+            to_port = permission.get('ToPort', '')
+            ip_protocol = permission.get('IpProtocol', '')
+
+            # Extract sources (CIDR, SG, Prefix list)
+            sources = []
+            for ip_range in permission.get('IpRanges', []):
+                sources.append(ip_range.get('CidrIp', ''))
+            for ipv6_range in permission.get('Ipv6Ranges', []):
+                sources.append(ipv6_range.get('CidrIpv6', ''))
+            for sg_range in permission.get('UserIdGroupPairs', []):
+                sources.append(sg_range.get('GroupId', ''))
+            for pl_range in permission.get('PrefixListIds', []):
+                sources.append(pl_range.get('PrefixListId', ''))
+
+            source_str = ", ".join(sources)
+            inbound_rules.append(f"{ip_protocol}: {from_port}-{to_port} ({source_str})")
+        
+        inbound_rules_str = "\n".join(inbound_rules)
+        
+        # Extracting Outbound rules (permissions) with destination
+        outbound_rules = []
+        for permission in sg.get('IpPermissionsEgress', []):
+            from_port = permission.get('FromPort', '')
+            to_port = permission.get('ToPort', '')
+            ip_protocol = permission.get('IpProtocol', '')
+
+            # Extract destinations (CIDR, SG, Prefix list)
+            destinations = []
+            for ip_range in permission.get('IpRanges', []):
+                destinations.append(ip_range.get('CidrIp', ''))
+            for ipv6_range in permission.get('Ipv6Ranges', []):
+                destinations.append(ipv6_range.get('CidrIpv6', ''))
+            for sg_range in permission.get('UserIdGroupPairs', []):
+                destinations.append(sg_range.get('GroupId', ''))
+            for pl_range in permission.get('PrefixListIds', []):
+                destinations.append(pl_range.get('PrefixListId', ''))
+
+            destination_str = ", ".join(destinations)
+            outbound_rules.append(f"{ip_protocol}: {from_port}-{to_port} ({destination_str})")
+        
+        outbound_rules_str = "\n".join(outbound_rules)
+
+        sg_data.append({
+            'SG ID': sg.get('GroupId'),
+            'SG Name': sg.get('GroupName'),
+            'Description': sg.get('Description'),
+            'VPC ID': sg.get('VpcId'),
+            'Inbound Rules': inbound_rules_str,
+            'Outbound Rules': outbound_rules_str,
+        })
+    
+    return sg_data
+
+
+def get_vpc_peering_connections(region, vpcid=None):
+    """
+    Get details about VPC peering connections in a specific region.
+    Optionally filter for a specific VPC ID.
+    
+    Parameters:
+        region (str): The AWS region to fetch VPC peering connections from.
+        vpc_id (str, optional): A specific VPC ID to fetch peering connections for.
+    
+    Returns:
+        list: A list of dictionaries, each containing details about a VPC peering connection.
+    """
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    filters = []
+    
+    response = ec2_client.describe_vpc_peering_connections()
+    
+    peering_connections = []
+    
+    for connection in response.get('VpcPeeringConnections', []):
+        if vpcid is not None:
+            requester_vpc_id = connection['RequesterVpcInfo'].get('VpcId')
+            accepter_vpc_id = connection['AccepterVpcInfo'].get('VpcId')
+            # Check if vpc_id is either requester or accepter
+            if vpcid != requester_vpc_id and vpcid != accepter_vpc_id:
+                continue
+        peering_data = {
+            'Peering ID': connection.get('VpcPeeringConnectionId'),
+            'Req VPC ID': connection['RequesterVpcInfo'].get('VpcId'),
+            'Req VPC CIDR': connection['RequesterVpcInfo'].get('CidrBlock'),
+            'Req Owner ID': connection['RequesterVpcInfo'].get('OwnerId'),
+            'Acc VPC ID': connection['AccepterVpcInfo'].get('VpcId'),
+            'Acc VPC CIDR': connection['AccepterVpcInfo'].get('CidrBlock'),
+            'Acc Owner ID': connection['AccepterVpcInfo'].get('OwnerId'),
+            'Status': connection['Status'].get('Message'),
+            'Creation Time': connection.get('CreationTimestamp')
+        }
+        peering_connections.append(peering_data)
+    
+    return peering_connections
+
+def get_vpc_resource(vpc_id, region, resource_type):
+    resource_data = {
+        "ec2": get_ec2_instances,
+        "sub": get_subnet_info,
+        "rds": get_rds_instances,
+        "vpce": get_vpc_endpoints,
+        "vpn": get_vpn_connections,
+        "cvpn": get_client_vpn_endpoints,
+        "sg" : get_security_groups,
+        "peer": get_vpc_peering_connections
+    }
+    
+    if resource_type == "all":
+        all_resources = {}
+        for key, function in resource_data.items():
+            all_resources[key] = function(vpcid=vpc_id, region=region)
+        return all_resources
+    
+    else:
+        function = resource_data.get(resource_type)
+        if function:
+            return function(vpcid=vpc_id, region=region)
+        else:
+            raise ValueError(f"Invalid resource type: {resource_type}")
+
