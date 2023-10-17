@@ -1,4 +1,4 @@
-
+from prettytable import PrettyTable
 # Code Snippet 27
 
 # utils/aws_utils.py
@@ -38,6 +38,12 @@ def select_keys_to_show(service, region, report_type,output):
             keys_to_show = ['SG ID','SG Name','Description','VPC ID','Inbound Rules','Outbound Rules']
         elif report_type == 'peer' and output=='s':
             keys_to_show = ['Peering ID','Req VPC ID','Req VPC CIDR','Req Owner ID','Acc VPC ID','Acc VPC CIDR','Acc Owner ID','Status','Creation Time']
+        elif report_type == 'nacl' and output=='s':
+            keys_to_show = ['Net ACL ID','VPC ID','Is Default','Subnets Associated','Entries']
+        elif report_type == 'route' and output=='s':
+            keys_to_show = ['Route Table ID','VPC ID','Is Main','Routes','Associations']
+        elif report_type == 'eip' and output=='s':
+            keys_to_show = ['Public IP','Allocation ID','Instance ID','Network Interface ID','Private IP Address','VPC ID','Domain']
         else:
             keys_to_show = ['VPC ID', 'VPC Name', 'VPC CIDR', 'Subnets', 'Subnet CIDR', 'IsPublic', 'EC2 instance ID', 'Instance Name', 'Instance Public IP', 'Instance Private IP']
     return keys_to_show
@@ -50,23 +56,23 @@ def select_keys_to_show(service, region, report_type,output):
 
 import boto3
 
-def get_ec2_instances(region=None, stopped=False, vpcid=None):
+def get_ec2_instances(region=None, stopped=False, vpc_id=None):
     if region is not None:
         session = boto3.Session(region_name=region)
     else:
         session = boto3.Session()
 
     # print("Region: %s" % region)
-    # print("VpcId: %s" % vpcid)
+    # print("vpc_id: %s" % vpc_id)
     # print("Stopped: %s" %stopped)
     ec2_resource = session.resource('ec2')
     ec2_client = session.client('ec2')
     
     filters = []
-    if vpcid is not None:
+    if vpc_id is not None:
         filters.append({
             'Name': 'vpc-id',
-            'Values': [vpcid]
+            'Values': [vpc_id]
         })
     if stopped:
         filters.append({
@@ -81,7 +87,7 @@ def get_ec2_instances(region=None, stopped=False, vpcid=None):
     for instance in instances:
         if stopped and instance.state["Name"] != "stopped":
             continue
-        if vpcid is not None and instance.vpc_id != vpcid:
+        if vpc_id is not None and instance.vpc_id != vpc_id:
             continue
 
         # Retrieve the instance name from the instance's tags
@@ -253,17 +259,17 @@ def get_rds_instances(vpc_id, region):
         rds_details.append(instance_details)
     return rds_details
 
-def get_vpn_connections(region=None, vpcid=None):
+def get_vpn_connections(region=None, vpc_id=None):
     # Initialize session and client
     session = boto3.Session(region_name=region)
     ec2_client = session.client('ec2')
     
     # Define filters based on VPC ID if provided
     filters = []
-    if vpcid:
+    if vpc_id:
         filters.append({
             'Name': 'vpn-connection.vpc-id',
-            'Values': [vpcid]
+            'Values': [vpc_id]
         })
 
     # Fetch VPN connections using filters
@@ -275,7 +281,7 @@ def get_vpn_connections(region=None, vpcid=None):
         vpn_data.append({
             'Region': region,
             'VPN Connection ID': vpn.get('VpnConnectionId', ''),
-            'VPC ID': vpn.get('VpcId', ''),
+            'VPC ID': vpn.get('vpc_id', ''),
             'Customer Gateway ID': vpn.get('CustomerGatewayId', ''),
             'VPN Gateway ID': vpn.get('VpnGatewayId', ''),
             'State': vpn.get('State', ''),
@@ -289,12 +295,12 @@ def get_vpn_connections(region=None, vpcid=None):
 
 import boto3
 
-def get_client_vpn_endpoints(region=None, vpcid=None):
+def get_client_vpn_endpoints(region=None, vpc_id=None):
     """
     Retrieve information about AWS Client VPN endpoints.
 
     :param region: AWS region name.
-    :param vpcid: VPC ID to filter the VPN endpoints (optional).
+    :param vpc_id: VPC ID to filter the VPN endpoints (optional).
     :return: List of dictionaries containing VPN endpoint details.
     """
     # Initialize the session and client
@@ -313,7 +319,7 @@ def get_client_vpn_endpoints(region=None, vpcid=None):
     # Extract and structure data
     vpn_data = []
     for endpoint in response.get('ClientVpnEndpoints', []):
-        if vpcid and endpoint.get('VpcId') != vpcid:
+        if vpc_id and endpoint.get('vpc_id') != vpc_id:
             continue
         
         vpn_data.append({
@@ -331,12 +337,12 @@ def get_client_vpn_endpoints(region=None, vpcid=None):
     return vpn_data
 
 
-def get_security_groups(region=None, vpcid=None):
+def get_security_groups(region=None, vpc_id=None):
     """
     Retrieve information about AWS security groups.
 
     :param region: AWS region name.
-    :param vpcid: VPC ID to filter the security groups (optional).
+    :param vpc_id: VPC ID to filter the security groups (optional).
     :return: List of dictionaries containing security group details.
     """
     # Initialize the session and client
@@ -345,10 +351,10 @@ def get_security_groups(region=None, vpcid=None):
     
     # Define a filter to obtain only security groups related to the provided VPC ID
     filters = []
-    if vpcid:
+    if vpc_id:
         filters.append({
             'Name': 'vpc-id',
-            'Values': [vpcid]
+            'Values': [vpc_id]
         })
 
     # Fetch Security Groups data
@@ -419,7 +425,7 @@ def get_security_groups(region=None, vpcid=None):
     return sg_data
 
 
-def get_vpc_peering_connections(region, vpcid=None):
+def get_vpc_peering_connections(region, vpc_id=None):
     """
     Get details about VPC peering connections in a specific region.
     Optionally filter for a specific VPC ID.
@@ -441,11 +447,11 @@ def get_vpc_peering_connections(region, vpcid=None):
     peering_connections = []
     
     for connection in response.get('VpcPeeringConnections', []):
-        if vpcid is not None:
+        if vpc_id is not None:
             requester_vpc_id = connection['RequesterVpcInfo'].get('VpcId')
             accepter_vpc_id = connection['AccepterVpcInfo'].get('VpcId')
             # Check if vpc_id is either requester or accepter
-            if vpcid != requester_vpc_id and vpcid != accepter_vpc_id:
+            if vpc_id != requester_vpc_id and vpc_id != accepter_vpc_id:
                 continue
         peering_data = {
             'Peering ID': connection.get('VpcPeeringConnectionId'),
@@ -462,7 +468,130 @@ def get_vpc_peering_connections(region, vpcid=None):
     
     return peering_connections
 
-def get_vpc_resource(vpc_id, region, resource_type):
+def get_network_acls(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    # If a VPC ID is specified, add it to the filter. Else, fetch all Network ACLs.
+    filters = []
+    if vpc_id:
+        filters.append({
+            'Name': 'vpc-id',
+            'Values': [vpc_id]
+        })
+    
+    response = ec2_client.describe_network_acls(Filters=filters)
+    
+    network_acls_data = []
+    
+    for acl in response.get('NetworkAcls', []):
+        entries = []
+        for entry in acl.get('Entries', []):
+            entries.append({
+                'Rule Number': entry.get('RuleNumber'),
+                'Protocol': entry.get('Protocol'),
+                'Rule Action': entry.get('RuleAction'),
+                'Egress': entry.get('Egress'),
+                'CIDR Block': entry.get('CidrBlock'),
+                'Port Range': entry.get('PortRange')
+            })
+        
+        acl_data = {
+            'Net ACL ID': acl.get('NetworkAclId'),
+            'VPC ID': acl.get('VpcId'),
+            'Is Default': acl.get('IsDefault'),
+            'Subnets Associated': [association.get('SubnetId') for association in acl.get('Associations', [])],
+            'Entries': entries
+        }
+        network_acls_data.append(acl_data)
+    
+    return network_acls_data
+
+def get_route_tables(region, vpc_id=None):
+    # Create a session using the provided region
+    session = boto3.Session(region_name=region)
+    ec2_resource = session.resource('ec2')
+    
+    # If VPC ID is provided, filter by VPC ID
+    filters = []
+    if vpc_id:
+        filters.append({
+            'Name': 'vpc-id',
+            'Values': [vpc_id]
+        })
+    
+    route_tables = ec2_resource.route_tables.filter(Filters=filters)
+    
+    route_table_data = []
+
+    for rt in route_tables:
+        # Retrieving the main attribute
+        is_main = any(attr.get('Key') == 'aws:cloudformation:stack-name' and attr.get('Value') == 'AWSServiceRoleForVPC' for attr in rt.tags or [])
+        
+        # Parsing each route in the route table
+        routes_info = []
+        for route in rt.routes:
+            # Determine the target based on available attributes
+            target = (route.gateway_id or route.instance_id or route.nat_gateway_id or 
+                      route.transit_gateway_id or route.vpc_peering_connection_id or 
+                      route.vpc_endpoint_id or route.destination_prefix_list_id)
+            destination = route.destination_cidr_block or route.destination_prefix_list_id
+            routes_info.append({
+                'Destination': destination,
+                'Target': target,
+                'State': route.state
+            })
+
+        route_table_data.append({
+            'Route Table ID': rt.id,
+            'VPC ID': rt.vpc_id,
+            'Is Main': is_main,
+            'Routes': routes_info,
+            'Associations': [assoc.subnet_id for assoc in rt.associations]
+        })
+
+    return route_table_data
+
+
+def get_elastic_ips(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    eips = ec2_client.describe_addresses()['Addresses']
+    eip_data = []
+
+    for eip in eips:
+        associated_with_vpc = False
+
+        if 'InstanceId' in eip:
+            instance = ec2_client.describe_instances(InstanceIds=[eip['InstanceId']])
+            if instance['Reservations'][0]['Instances'][0]['VpcId'] == vpc_id:
+                associated_with_vpc = True
+
+        elif 'NetworkInterfaceId' in eip:
+            network_interface = ec2_client.describe_network_interfaces(NetworkInterfaceIds=[eip['NetworkInterfaceId']])
+            if network_interface['NetworkInterfaces'][0]['VpcId'] == vpc_id:
+                associated_with_vpc = True
+
+        # Similarly, add more conditions here for other associations like NAT gateways, VPNs, etc. if necessary
+
+        if vpc_id and not associated_with_vpc:
+            continue
+
+        eip_data.append({
+            'Public IP': eip.get('PublicIp'),
+            'Allocation ID': eip.get('AllocationId'),
+            'Instance ID': eip.get('InstanceId'),
+            'Network Interface ID': eip.get('NetworkInterfaceId'),
+            'Private IP Address': eip.get('PrivateIpAddress'),
+            'VPC ID': eip.get('VpcId'),
+            'Domain': eip.get('Domain')
+        })
+
+    return eip_data
+
+
+def get_vpc_resource(vpc_id, region, resource_type,output_type):
     resource_data = {
         "ec2": get_ec2_instances,
         "sub": get_subnet_info,
@@ -471,19 +600,40 @@ def get_vpc_resource(vpc_id, region, resource_type):
         "vpn": get_vpn_connections,
         "cvpn": get_client_vpn_endpoints,
         "sg" : get_security_groups,
-        "peer": get_vpc_peering_connections
+        "peer": get_vpc_peering_connections,
+        "nacl": get_network_acls,
+        "route": get_route_tables,
+        "eip": get_elastic_ips
     }
-    
+    data = []
     if resource_type == "all":
         all_resources = {}
         for key, function in resource_data.items():
-            all_resources[key] = function(vpcid=vpc_id, region=region)
-        return all_resources
-    
+            print('Executing: %s' % function)
+            data = function(vpc_id=vpc_id, region=region)
+            print('==============================' + key + '============================')
+            show_output(data=data,service='vpc',region=region,report_type=key,output=output_type) 
+            print('================================================================')
+        
     else:
         function = resource_data.get(resource_type)
         if function:
-            return function(vpcid=vpc_id, region=region)
+            data = function(vpc_id=vpc_id, region=region)
+            show_output(data=data,service='vpc',region=region,report_type=resource_type,output=output_type) 
         else:
             raise ValueError(f"Invalid resource type: {resource_type}")
+
+def show_output(data,service,region,report_type,output):
+    keys_to_show = select_keys_to_show(service=service, region=region,report_type=report_type, output=output)
+
+    # data = sorted(data, key=lambda x: x.get('VPC ID', ''))
+
+    table = PrettyTable()
+    table.field_names = keys_to_show
+
+    for d in data:
+        row = [d.get(k, '') for k in keys_to_show]
+        table.add_row(row)
+
+    print(table)
 
