@@ -1,4 +1,7 @@
 from prettytable import PrettyTable
+
+import boto3
+
 # Code Snippet 27
 
 # utils/aws_utils.py
@@ -44,6 +47,24 @@ def select_keys_to_show(service, region, report_type,output):
             keys_to_show = ['Route Table ID','VPC ID','Is Main','Routes','Associations']
         elif report_type == 'eip' and output=='s':
             keys_to_show = ['Public IP','Allocation ID','Instance ID','Network Interface ID','Private IP Address','VPC ID','Domain']
+        elif report_type == 'nat' and output=='s':
+            keys_to_show = ['NAT Gateway ID','VPC ID','State','Subnet ID','Private IP','Public IP','EIP Allocation ID','Creation Time']
+        elif report_type == 'igw' and output=='s':
+            keys_to_show = ['Internet Gateway ID','VPC ID','Attachment State']
+        elif report_type == 'elb' and output=='s':
+            keys_to_show = ['Type','Name','DNS Name','VPC ID','Availability Zones']
+        elif report_type == 'lambda' and output=='s':
+            keys_to_show = ['Function Name','Runtime','VPC ID','Subnet IDs','Security Group IDs']
+        elif report_type == 'ecs' and output=='s':
+            keys_to_show = ['ClusterName','Services','Tasks']
+        elif report_type == 'eks' and output=='s':
+            keys_to_show = ['ClusterName','Status','CreatedDate','VPC_ID','NodeGroups','KubernetesVersion']
+        elif report_type == 'redshift' and output=='s':
+            keys_to_show = ['ClusterIdentifier','NodeType','ClusterStatus','NumberOfNodes','DBName','VpcId','AvailabilityZone','ClusterCreateTime','ClusterParameterGroups','ClusterSecurityGroups','VpcSecurityGroups']
+        elif report_type == 'ecache' and output=='s':
+            keys_to_show = ['CacheClusterId','Engine','CacheNodeType','CacheClusterStatus','NumCacheNodes','VpcId','AvailabilityZones']
+        elif report_type == 'api' and output=='s':
+            keys_to_show = ['API Name','API ID','API Type','Description','CreatedDate','EndpointType']
         else:
             keys_to_show = ['VPC ID', 'VPC Name', 'VPC CIDR', 'Subnets', 'Subnet CIDR', 'IsPublic', 'EC2 instance ID', 'Instance Name', 'Instance Public IP', 'Instance Private IP']
     return keys_to_show
@@ -53,8 +74,6 @@ def select_keys_to_show(service, region, report_type,output):
 # Code Snippet 11
 
 # utils/aws_utils.py
-
-import boto3
 
 def get_ec2_instances(region=None, stopped=False, vpc_id=None):
     if region is not None:
@@ -590,8 +609,341 @@ def get_elastic_ips(region, vpc_id=None):
 
     return eip_data
 
+def get_nat_gateways(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    filters = []
+    if vpc_id:
+        filters.append({
+            'Name': 'vpc-id',
+            'Values': [vpc_id]
+        })
 
-def get_vpc_resource(vpc_id, region, resource_type,output_type):
+    nat_gateways = ec2_client.describe_nat_gateways(Filters=filters)['NatGateways']
+    nat_data = []
+
+    for nat in nat_gateways:
+        nat_data.append({
+            'NAT Gateway ID': nat.get('NatGatewayId'),
+            'VPC ID': nat.get('VpcId'),
+            'State': nat.get('State'),
+            'Subnet ID': nat.get('SubnetId'),
+            'Creation Time': nat.get('CreateTime'),
+            'Private IP': nat['NatGatewayAddresses'][0].get('PrivateIp') if nat.get('NatGatewayAddresses') else None,
+            'Public IP': nat['NatGatewayAddresses'][0].get('PublicIp') if nat.get('NatGatewayAddresses') else None,
+            'EIP Allocation ID': nat['NatGatewayAddresses'][0].get('AllocationId') if nat.get('NatGatewayAddresses') else None
+        })
+
+    return nat_data
+
+def get_internet_gateways(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    ec2_client = session.client('ec2')
+    
+    filters = []
+    if vpc_id:
+        filters.append({
+            'Name': 'attachment.vpc-id',
+            'Values': [vpc_id]
+        })
+
+    internet_gateways = ec2_client.describe_internet_gateways(Filters=filters)['InternetGateways']
+    igw_data = []
+
+    for igw in internet_gateways:
+        vpc_attachments = igw.get('Attachments', [])
+        
+        # Typically, an IGW is attached to one VPC. However, to handle any edge cases:
+        attached_vpc_id = None
+        attachment_state = None
+        if vpc_attachments:
+            attached_vpc_id = vpc_attachments[0].get('VpcId')
+            attachment_state = vpc_attachments[0].get('State')
+        
+        igw_data.append({
+            'Internet Gateway ID': igw.get('InternetGatewayId'),
+            'VPC ID': attached_vpc_id,
+            'Attachment State': attachment_state
+        })
+
+    return igw_data
+
+def get_elastic_load_balancers(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    
+    # For Classic Load Balancers
+    elb_client = session.client('elb')
+    classic_load_balancers = elb_client.describe_load_balancers()['LoadBalancerDescriptions']
+    classic_lb_data = []
+    for clb in classic_load_balancers:
+        if not vpc_id or (vpc_id and clb['VPCId'] == vpc_id):
+            classic_lb_data.append({
+                'Type': 'Classic',
+                'Name': clb['LoadBalancerName'],
+                'DNS Name': clb['DNSName'],
+                'VPC ID': clb['VPCId'],
+                'Availability Zones': ', '.join(clb['AvailabilityZones']),
+            })
+
+    # For Application and Network Load Balancers
+    elbv2_client = session.client('elbv2')
+    all_load_balancers = elbv2_client.describe_load_balancers()['LoadBalancers']
+    app_net_lb_data = []
+    for lb in all_load_balancers:
+        if not vpc_id or (vpc_id and lb['VpcId'] == vpc_id):
+            lb_type = lb['Type'].capitalize()
+            app_net_lb_data.append({
+                'Type': lb_type,
+                'Name': lb['LoadBalancerName'],
+                'DNS Name': lb['DNSName'],
+                'VPC ID': lb['VpcId'],
+                'Availability Zones': ', '.join([az['ZoneName'] for az in lb['AvailabilityZones']]),
+            })
+
+    # Combine and return both lists
+    return classic_lb_data + app_net_lb_data
+
+def get_lambda_functions(region, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    lambda_client = session.client('lambda')
+
+    # List all functions
+    functions = lambda_client.list_functions()['Functions']
+
+    lambda_data = []
+
+    for func in functions:
+        # Check if VPC is associated with the lambda function
+        vpc_config = func.get('VpcConfig', {})
+        func_vpc_id = vpc_config.get('VpcId', '')
+        
+        if not vpc_id or (vpc_id and func_vpc_id == vpc_id):
+            lambda_data.append({
+                'Function Name': func['FunctionName'],
+                'Function ARN': func['FunctionArn'],
+                'Runtime': func['Runtime'],
+                'VPC ID': func_vpc_id,
+                'Subnet IDs': ', '.join(vpc_config.get('SubnetIds', [])),
+                'Security Group IDs': ', '.join(vpc_config.get('SecurityGroupIds', []))
+            })
+
+    return lambda_data
+
+def get_ecs_info(region=None, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    ecs_client = session.client('ecs')
+    
+    clusters_response = ecs_client.list_clusters()
+    all_cluster_arns = clusters_response['clusterArns']
+
+    ecs_info = []
+
+    for cluster_arn in all_cluster_arns:
+        cluster_name = cluster_arn.split('/')[-1]
+        
+        # Describing the cluster to get VPC information
+        cluster_details = ecs_client.describe_clusters(clusters=[cluster_name])['clusters'][0]
+        
+        # Check if cluster belongs to the given VPC (if specified)
+        if vpc_id and (cluster_details.get('vpcId') != vpc_id):
+            continue
+
+        services = ecs_client.list_services(cluster=cluster_name)['serviceArns']
+        tasks = ecs_client.list_tasks(cluster=cluster_name)['taskArns']
+
+        # Extracting service names from ARNs
+        service_names = [service.split('/')[-1] for service in services]
+
+        # Extracting task definition names from ARNs. It provides task definition versions as well. 
+        # If you want just the task definition name without version, you'd need another step to parse that out.
+        task_definitions = [task.split('/')[-1] for task in tasks]
+
+        ecs_info.append({
+            'ClusterName': cluster_name,
+            'Services': ', '.join(service_names),
+            'Tasks': ', '.join(task_definitions)
+        })
+
+    return ecs_info
+
+def get_eks_info_with_nodegroups(region=None, vpc_id=None):
+    session = boto3.Session(region_name=region)
+    eks_client = session.client('eks')
+    
+    # Listing all EKS clusters in the region
+    clusters_response = eks_client.list_clusters()
+    all_cluster_names = clusters_response['clusters']
+
+    eks_info = []
+
+    for cluster_name in all_cluster_names:
+        # Describing the cluster to get details
+        cluster_details = eks_client.describe_cluster(name=cluster_name)['cluster']
+
+        # Extract VPC information
+        cluster_vpc_id = cluster_details.get('resourcesVpcConfig', {}).get('vpcId')
+
+        # Check if cluster belongs to the given VPC (if specified)
+        if vpc_id and (cluster_vpc_id != vpc_id):
+            continue
+
+        # Extracting node group details
+        nodegroup_names = eks_client.list_nodegroups(clusterName=cluster_name)['nodegroups']
+        nodegroups_info = []
+        for nodegroup_name in nodegroup_names:
+            nodegroup_details = eks_client.describe_nodegroup(clusterName=cluster_name, nodegroupName=nodegroup_name)['nodegroup']
+            
+            nodegroups_info.append({
+                'NodeGroupName': nodegroup_name,
+                'Status': nodegroup_details['status'],
+                # 'InstanceType': nodegroup_details['instanceType'],
+                'NodeRole': nodegroup_details['nodeRole'],
+                'DesiredSize': nodegroup_details['scalingConfig']['desiredSize'],
+                # 'CurrentSize': len(nodegroup_details['instances'])
+            })
+
+        eks_info.append({
+            'ClusterName': cluster_name,
+            'Status': cluster_details['status'],
+            'Endpoint': cluster_details['endpoint'],
+            'CreatedDate': cluster_details['createdAt'],
+            'VPC_ID': cluster_vpc_id,
+            'NodeGroups': nodegroups_info,
+            'KubernetesVersion': cluster_details['version'],
+        })
+
+    return eks_info
+
+
+def get_redshift_clusters(vpc_id=None, region='us-west-2'):
+    # Initialize the session
+    session = boto3.Session(region_name=region)
+    redshift_client = session.client('redshift')
+
+    # Fetch Redshift clusters
+    clusters = redshift_client.describe_clusters()['Clusters']
+
+    cluster_data = []
+
+    for cluster in clusters:
+        # Check if we are filtering by VPC and if this cluster belongs to the given VPC
+        if vpc_id and cluster['VpcId'] != vpc_id:
+            continue
+
+        cluster_info = {
+            'ClusterIdentifier': cluster['ClusterIdentifier'],
+            'NodeType': cluster['NodeType'],
+            'ClusterStatus': cluster['ClusterStatus'],
+            'NumberOfNodes': cluster['NumberOfNodes'],
+            'MasterUsername': cluster['MasterUsername'],
+            'DBName': cluster['DBName'],
+            'Endpoint': f"{cluster['Endpoint']['Address']}:{cluster['Endpoint']['Port']}",
+            'VpcId': cluster['VpcId'],
+            'AvailabilityZone': cluster['AvailabilityZone'],
+            'ClusterCreateTime': cluster['ClusterCreateTime'],
+            'ClusterParameterGroups': ", ".join([group['ParameterGroupName'] for group in cluster['ClusterParameterGroups']]),
+            'ClusterSecurityGroups': ", ".join(cluster['ClusterSecurityGroups']),
+            'VpcSecurityGroups': ", ".join([group['VpcSecurityGroupId'] for group in cluster['VpcSecurityGroups']])
+        }
+
+        cluster_data.append(cluster_info)
+
+    return cluster_data
+
+
+def get_elasticache_info(vpc_id=None, region='us-east-1'):
+    # Initialize the session
+    session = boto3.Session(region_name=region)
+    elasticache_client = session.client('elasticache')
+
+    # Fetch Elasticache clusters
+    clusters = elasticache_client.describe_cache_clusters(ShowCacheNodeInfo=True)['CacheClusters']
+
+    cache_data = []
+
+    for cluster in clusters:
+        # Check if we are filtering by VPC and if this cluster belongs to the given VPC
+        subnet_group = elasticache_client.describe_cache_subnet_groups(CacheSubnetGroupName=cluster['CacheSubnetGroupName'])['CacheSubnetGroups'][0]
+        
+        if vpc_id and subnet_group['VpcId'] != vpc_id:
+            continue
+
+        # Extract node details
+        node_details = []
+        if 'CacheNodes' in cluster:
+            for node in cluster['CacheNodes']:
+                node_details.append({
+                    'CacheNodeID': node['CacheNodeId'],
+                    'Status': node['CacheNodeStatus'],
+                    'Endpoint': f"{node['Endpoint']['Address']}:{node['Endpoint']['Port']}"
+                })
+
+        cluster_info = {
+            'CacheClusterId': cluster['CacheClusterId'],  # This is the cluster name
+            'Engine': cluster['Engine'],
+            'CacheNodeType': cluster['CacheNodeType'],
+            'CacheClusterStatus': cluster['CacheClusterStatus'],
+            'NumCacheNodes': cluster.get('NumCacheNodes', None),
+            'Nodes': node_details,
+            'VpcId': subnet_group['VpcId'],
+            'AvailabilityZone': cluster.get('PreferredAvailabilityZone', None)
+        }
+
+        cache_data.append(cluster_info)
+    print('NOTE: CacheClusterId shows the nodes in the cluster')
+    return cache_data
+
+# Code Snippet 81
+def get_api_gateways(vpc_id=None, region='us-east-1'):
+    session = boto3.Session(region_name=region)
+    client_rest = session.client('apigateway')
+    client_ws = session.client('apigatewayv2')
+
+    all_apis = []
+    
+    # Get REST APIs
+    rest_apis = client_rest.get_rest_apis().get('items', [])
+    for api in rest_apis:
+        # If we need to filter by VPC and this API is not private, skip it
+        if vpc_id and api['endpointConfiguration']['types'][0] != "PRIVATE":
+            continue
+        # If we're filtering by VPC and the VPC ID doesn't match, skip it
+        if vpc_id and api.get('vpcEndpointIds', [None])[0] != vpc_id:
+            continue
+        all_apis.append({
+            'API ID': api['id'],
+            'API Name': api['name'],
+            'API Type': 'REST',
+            'EndpointType': api['endpointConfiguration']['types'][0],
+            'Description': api.get('description', ''),
+            'CreatedDate': api['createdDate']
+        })
+
+    # Get Websocket APIs
+    websocket_apis = client_ws.get_apis().get('items', [])
+    for api in websocket_apis:
+        # If we need to filter by VPC and this API is not private, skip it
+        if vpc_id and api['protocolType'] != "WEBSOCKET":
+            continue
+        # If we're filtering by VPC and the VPC ID doesn't match, skip it
+        # Note: As of my last update, vpcEndpoint configuration is not available for WebSocket APIs. 
+        # This may change in future AWS SDK updates. 
+        all_apis.append({
+            'API ID': api['apiId'],
+            'API Name': api['name'],
+            'API Type': 'WEBSOCKET',
+            'EndpointType': api.get('protocolType', 'WEBSOCKET'),
+            'Description': api.get('description', ''),
+            'CreatedDate': api['createdDate']
+        })
+
+    # You can also add other API types (like HTTP APIs) in a similar fashion if you are using them.
+
+    return all_apis
+
+
+def get_vpc_resource(vpc_id, region, resource_type,output_type,output_file,format):
     resource_data = {
         "ec2": get_ec2_instances,
         "sub": get_subnet_info,
@@ -603,7 +955,17 @@ def get_vpc_resource(vpc_id, region, resource_type,output_type):
         "peer": get_vpc_peering_connections,
         "nacl": get_network_acls,
         "route": get_route_tables,
-        "eip": get_elastic_ips
+        "eip": get_elastic_ips,
+        "nat": get_nat_gateways,
+        "igw": get_internet_gateways,
+        "elb": get_elastic_load_balancers,
+        "lambda": get_lambda_functions,
+        "ecs": get_ecs_info,
+        "eks": get_eks_info_with_nodegroups,
+        "redshift": get_redshift_clusters,
+        "ecache": get_elasticache_info,
+        "api": get_api_gateways
+
     }
     data = []
     if resource_type == "all":
@@ -612,28 +974,90 @@ def get_vpc_resource(vpc_id, region, resource_type,output_type):
             print('Executing: %s' % function)
             data = function(vpc_id=vpc_id, region=region)
             print('==============================' + key + '============================')
-            show_output(data=data,service='vpc',region=region,report_type=key,output=output_type) 
+            show_output(data=data,service='vpc',region=region,report_type=key,output=output_type,output_file=output_file,format=format)
             print('================================================================')
         
     else:
         function = resource_data.get(resource_type)
         if function:
             data = function(vpc_id=vpc_id, region=region)
-            show_output(data=data,service='vpc',region=region,report_type=resource_type,output=output_type) 
+            show_output(data=data,service='vpc',region=region,report_type=resource_type,output=output_type,output_file=output_file,format=format) 
         else:
             raise ValueError(f"Invalid resource type: {resource_type}")
 
-def show_output(data,service,region,report_type,output):
-    keys_to_show = select_keys_to_show(service=service, region=region,report_type=report_type, output=output)
+def show_output(data, service, region, report_type, output, output_file='', format='table'):
+    keys_to_show = select_keys_to_show(service=service, region=region, report_type=report_type, output=output)
+    output_data = ""
 
-    # data = sorted(data, key=lambda x: x.get('VPC ID', ''))
+    if format == 'table':
+        table = PrettyTable()
+        table.align = 'l'
+        table.field_names = keys_to_show
 
-    table = PrettyTable()
-    table.field_names = keys_to_show
+        for d in data:
+            row = [str(d.get(k, '')) for k in keys_to_show]
+            table.add_row(row)
+        output_data = str(table)
 
-    for d in data:
-        row = [d.get(k, '') for k in keys_to_show]
-        table.add_row(row)
+    elif format == 'csv':
+        # Form the header row
+        output_data = ','.join(keys_to_show) + '\n'
+        for d in data:
+            row = [str(d.get(k, '')) for k in keys_to_show]
+            output_data += ','.join(row) + '\n'
 
-    print(table)
+    if output_file:
+        write_to_file(report_type, output_data, filename=output_file)
+    else:
+        print(output_data)
 
+def write_to_file(type, table_data, filename='output.txt'):
+    with open(filename, 'a') as f:
+        f.write(table_data)
+        f.write("\n\n")  # Add a couple of newline characters for better separation between entries
+
+
+
+# def show_output(data,service,region,report_type,output):
+#     keys_to_show = select_keys_to_show(service=service, region=region,report_type=report_type, output=output)
+
+#     # data = sorted(data, key=lambda x: x.get('VPC ID', ''))
+
+#     table = PrettyTable()
+#     table.align = 'l'
+#     table.field_names = keys_to_show
+
+#     for d in data:
+#         row = [d.get(k, '') for k in keys_to_show]
+#         table.add_row(row)
+#     write_to_file(type=report_type,table_data=str(table))
+#     # print(table)
+
+# def show_output_csv(data, service, region, report_type, output):
+#     keys_to_show = select_keys_to_show(service=service, region=region, report_type=report_type, output=output)
+    
+#     # Print the header row
+#     print(','.join(keys_to_show))
+#     header = ','.join(keys_to_show) + '\n'
+#     write_to_file(type=report_type,table_data=header)
+    
+#     for d in data:
+#         row = [str(d.get(k, '')) for k in keys_to_show]
+#         line =','.join(row)
+#         write_to_file(type=report_type,table_data=line)
+
+# def write_to_file(type,table_data, filename='output.txt'):
+#     """
+#     Appends the table data to the given filename.
+
+#     Parameters:
+#         - table_data (str): The table data in string format.
+#         - filename (str, optional): The name of the file to append to. Defaults to 'output.txt'.
+
+#     Returns:
+#         None
+#     """
+#     with open(filename, 'a') as f:
+        
+#         f.write(table_data)
+#         f.write("\n\n")  # Add a couple of newline characters for better separation between entries
